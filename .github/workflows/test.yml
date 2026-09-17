@@ -1,0 +1,101 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Static checks — these always run.
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run ShellCheck
+        # -x lets ShellCheck follow the sourced install.sh from the tests.
+        run: shellcheck -x scripts/install.sh scripts/version_test.sh scripts/install_test.sh
+
+      - name: Run actionlint
+        uses: raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7 # v2.2.0
+
+      - name: Test version normalization
+        run: bash scripts/version_test.sh
+
+  # Checksum verification, extraction and installation against a fake release
+  # archive, on every supported platform. Needs no published release.
+  offline:
+    name: Offline install steps (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-15-intel, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Test install steps
+        shell: bash
+        run: bash scripts/install_test.sh
+
+  # Installs a real himorime release on every supported platform. It needs a
+  # published release that this workflow's token can download, so it runs
+  # when the repository variable HIMORIME_RELEASED is "true", or on demand.
+  install:
+    name: Install (${{ matrix.os }})
+    if: vars.HIMORIME_RELEASED == 'true' || github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-15-intel, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup himorime
+        id: setup
+        uses: ./
+        with:
+          version: latest
+
+      - name: Print resolved outputs
+        shell: bash
+        env:
+          VERSION: ${{ steps.setup.outputs.version }}
+          BIN_PATH: ${{ steps.setup.outputs.bin-path }}
+          INSTALL_DIR: ${{ steps.setup.outputs.install-dir }}
+        run: |
+          echo "version=${VERSION}"
+          echo "bin-path=${BIN_PATH}"
+          echo "install-dir=${INSTALL_DIR}"
+
+      - name: Verify himorime on PATH (bash)
+        shell: bash
+        env:
+          VERSION: ${{ steps.setup.outputs.version }}
+        run: |
+          command -v himorime
+          himorime version | tee version.txt
+          grep -F "${VERSION}" version.txt
+
+      - name: Verify himorime on PATH (PowerShell)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Get-Command himorime
+          himorime version
