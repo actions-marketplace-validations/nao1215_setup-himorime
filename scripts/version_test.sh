@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # version_test.sh — check that resolve_version normalizes explicit versions and
-# that release_tag reads the tag of a large release document.
+# that extract_tag_name reads the tag of a large release document.
 #
 # Resolving "latest" itself needs the GitHub API and is covered by the gated
 # integration job in .github/workflows/test.yml.
@@ -35,7 +35,7 @@ check " 0.1.0" "v0.1.0" "0.1.0" # surrounding whitespace is trimmed
 # assets as the GitHub API returns it.
 padding="$(head -c 300000 /dev/zero | tr '\0' 'x')"
 body="$(printf '{\n  "tag_name": "v0.1.0",\n  "assets": ["%s"]\n}\n' "$padding")"
-if tag="$(release_tag "$body")" && [ "$tag" = "v0.1.0" ]; then
+if tag="$(extract_tag_name "$body")" && [ "$tag" = "v0.1.0" ]; then
   printf 'ok:   tag_name from a %d-byte release document\n' "${#body}"
 else
   printf 'FAIL: tag_name from a large release document -> %s\n' "${tag:-}"

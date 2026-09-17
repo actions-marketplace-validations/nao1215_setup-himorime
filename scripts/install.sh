@@ -74,13 +74,25 @@ detect_platform() {
   esac
 }
 
-# Print the tag_name of a GitHub release JSON document, without depending on jq.
-# grep reads a here-string rather than a pipe: a release lists every asset, so
-# the document outgrows a pipe buffer, and grep -m1 stopping early would kill
-# the writer with SIGPIPE, which pipefail turns into a failed install.
-release_tag() {
-  { grep -m1 '"tag_name"' <<<"$1" || true; } \
-    | sed -E 's/.*"tag_name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/'
+# Print the tag_name of a GitHub release JSON document, without depending on jq
+# and without a pipe: a release lists every asset, so the pretty-printed
+# document outgrows a pipe buffer, and a reader that stops at the tag line
+# (grep -m1) would kill the writer with SIGPIPE, which pipefail turns into a
+# failed install. Parameter expansion reads it in the shell itself, as
+# setup-atago does.
+extract_tag_name() {
+  local body="$1" after
+  case "$body" in
+    *'"tag_name"'*)
+      after="${body#*\"tag_name\"}"
+      after="${after#*:}"
+      after="${after#*\"}"
+      printf '%s' "${after%%\"*}"
+      ;;
+    *)
+      printf ''
+      ;;
+  esac
 }
 
 # ---------------------------------------------------------------------------
@@ -96,7 +108,7 @@ resolve_version() {
     local body tag
     body="$(gh_curl "https://api.github.com/repos/${OWNER}/${REPO}/releases/latest")" \
       || die "failed to query the latest release from the GitHub API"
-    tag="$(release_tag "$body")"
+    tag="$(extract_tag_name "$body")"
     [ -n "$tag" ] || die "could not determine the latest release tag (has himorime been released yet?)"
     requested="$tag"
   fi
