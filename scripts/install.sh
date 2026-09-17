@@ -74,6 +74,15 @@ detect_platform() {
   esac
 }
 
+# Print the tag_name of a GitHub release JSON document, without depending on jq.
+# grep reads a here-string rather than a pipe: a release lists every asset, so
+# the document outgrows a pipe buffer, and grep -m1 stopping early would kill
+# the writer with SIGPIPE, which pipefail turns into a failed install.
+release_tag() {
+  { grep -m1 '"tag_name"' <<<"$1" || true; } \
+    | sed -E 's/.*"tag_name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/'
+}
+
 # ---------------------------------------------------------------------------
 # Resolve the release tag (handles "latest", "v0.1.0" and "0.1.0").
 # Sets TAG (with leading v) and NUM_VERSION (without leading v).
@@ -87,8 +96,7 @@ resolve_version() {
     local body tag
     body="$(gh_curl "https://api.github.com/repos/${OWNER}/${REPO}/releases/latest")" \
       || die "failed to query the latest release from the GitHub API"
-    # Extract tag_name without depending on jq.
-    tag="$(printf '%s' "$body" | grep -m1 '"tag_name"' | sed -E 's/.*"tag_name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
+    tag="$(release_tag "$body")"
     [ -n "$tag" ] || die "could not determine the latest release tag (has himorime been released yet?)"
     requested="$tag"
   fi
