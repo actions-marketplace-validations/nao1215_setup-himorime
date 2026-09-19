@@ -28,6 +28,8 @@ jobs:
 
 Comments contain errors, regressions, budget violations and inconclusive or skipped checks, with a link to the Actions run. Passing and improved measurements are not listed. Repeated runs leave one bot-owned report comment; existing human comments are untouched. Fork PRs and non-PR events never post, even with a write-capable token.
 
+Before posting, the post step logs all saved results, decision settings and run metadata as tables, including with older CLI releases that do not log a full report themselves. Raw samples remain in the JSON file; measurements and verdicts are not recomputed.
+
 Only a fresh `$RUNNER_TEMP/himorime.json` is read. Missing or stale reports are skipped; malformed reports or API failures fail the post step with a diagnostic. Use one reporting benchmark job per PR: concurrent jobs converge on one result, not a combined report. Do not use `pull_request_target` or pass the publication token to measured commands. Same-repository PR code runs in a job with write permissions; grant those permissions only to contributors you trust.
 
 ## Pin a version

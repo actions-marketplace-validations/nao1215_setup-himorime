@@ -44,7 +44,8 @@ export async function readReport(path, started) {
       size += bytesRead;
     }
     if (size > limit) throw new Error('benchmark report exceeds the 16 MiB size limit');
-    return JSON.parse(buffer.subarray(0, size).toString('utf8'));
+    // Seeds are uint64 in himorime; preserve their decimal spelling in JS.
+    return JSON.parse(buffer.subarray(0, size).toString('utf8'), (key, value, context) => key === 'seed' && context?.source ? context.source : value);
   } catch (error) {
     if (error.code === 'ENOENT') return null;
     throw error;
@@ -168,6 +169,69 @@ export function render(rep, run) {
   const body = parts.join('\n');
   if (Buffer.byteLength(body) > 60000) throw new Error('benchmark notification exceeds the comment size limit');
   return body;
+}
+
+// Full results belong in the post-step log, including for older CLI releases
+// that wrote their report only to a file. No verdict is recomputed here.
+export function renderReport(rep, run) {
+  const comparisons = [], budgets = [], measurements = [], evidence = [], errors = [], metadata = [], collections = [];
+  const collectionIDs = new Map();
+  const addFields = (rows, label, data, prefix = '') => {
+    for (const [key, v] of Object.entries(data ?? {})) {
+      if (Array.isArray(v) && ['samples', 'command', 'commands', 'benchmarks', 'suites'].includes(key)) continue;
+      const field = prefix + key;
+      if (object(v)) addFields(rows, label, v, field + '.');
+      else rows.push([label, field, Array.isArray(v) ? JSON.stringify(v) : v]);
+    }
+  };
+  for (const s of rep.suites) {
+    if (s.error) addFields(errors, s.name, s.error);
+    addFields(metadata, `Suite ${s.name}`, { file: s.file, result: s.result, new_in_head: s.new_in_head, geometric_mean: s.geometric_mean });
+    for (const b of s.benchmarks) {
+      const label = `${s.name} / ${b.name}`;
+      if (b.error) addFields(errors, label, b.error);
+      for (const c of b.commands) {
+        const name = `${label} / ${c.name}`;
+        for (const [metric, mc] of Object.entries(c.comparisons ?? {})) {
+          const floorLimited = ['skipped', 'inconclusive'].includes(mc.verdict) && mc.reason === 'the peak RSS is at or below the measurement floor';
+          comparisons.push([name, metricName(metric), measured(c.base, metric, mc.unit, mc.base), measured(c.head, metric, mc.unit, mc.head), floorLimited ? '—' : value(mc.unit, mc.difference), floorLimited ? '—' : mc.change_percent, floorLimited ? '—' : mc.ci_low_percent, floorLimited ? '—' : mc.ci_high_percent, mc.max_percent, mc.verdict, mc.reason]);
+          const { base, head, change_percent, ci_low_percent, ci_high_percent, max_percent, verdict, reason, difference, ...settings } = mc;
+          addFields(evidence, `${name} / ${metric}`, settings);
+        }
+        for (const bc of c.budgets ?? []) budgets.push([name, metricName(bc.metric), bc.aggregation, measured(c.head, bc.metric, bc.unit, bc.actual), bc.operator, value(bc.unit, bc.limit), bc.status, bc.reason]);
+        for (const side of ['base', 'head']) {
+          const m = c[side];
+          if (m?.error) addFields(errors, `${name} / ${side}`, m.error);
+          for (const [metric, ms] of Object.entries(m?.metrics ?? {})) {
+            const scope = `${name} / ${side} / ${metricName(metric)}`;
+            const { stats, samples, ...collection } = ms;
+            const key = JSON.stringify(collection);
+            if (!collectionIDs.has(key)) {
+              const id = `C${collectionIDs.size + 1}`;
+              collectionIDs.set(key, id);
+              addFields(collections, id, collection);
+            }
+            const stat = name => measured(m, metric, ms.unit, stats?.[name]);
+            measurements.push([scope, stat('median'), stat('mean'), value(ms.unit, stats?.stddev), stat('min'), stat('max'),
+              ...['p90', 'p95', 'p99'].map(p => measured(m, metric, ms.unit, stats?.percentiles?.[p])), stats?.cv, stats?.robust_cv, stats?.count, ms.status, collectionIDs.get(key)]);
+            for (const [p, quantile] of Object.entries(stats?.percentiles ?? {})) {
+              if (!['p90', 'p95', 'p99'].includes(p)) metadata.push([scope, p, measured(m, metric, ms.unit, quantile)]);
+            }
+          }
+        }
+      }
+    }
+  }
+  addFields(metadata, 'Run', rep);
+  metadata.push(['Run', 'source', run.runURL]);
+  const table = (headers, rows) => rows.length ? [`| ${headers.join(' | ')} |`, `|${headers.map(() => '---').join('|')}|`, ...rows.map(row => `| ${row.map(v => cell(v, Infinity)).join(' | ')} |`), ''].join('\n') : '';
+  return [table(['Benchmark', 'Error field', 'Value'], errors),
+    table(['Benchmark', 'Metric', 'Base', 'Head', 'Difference', 'Change (%)', 'Interval low (%)', 'Interval high (%)', 'Tolerance (%)', 'Result', 'Reason'], comparisons),
+    table(['Benchmark', 'Metric', 'Statistic', 'Measured', 'Operator', 'Limit', 'Result', 'Reason'], budgets),
+    table(['Benchmark / side / metric', 'Median', 'Mean', 'Stddev', 'Min', 'Max', 'p90', 'p95', 'p99', 'CV', 'Robust CV', 'Samples', 'Status', 'Collection'], measurements),
+    table(['Collection', 'Field', 'Value'], collections),
+    table(['Benchmark / metric', 'Comparison field', 'Value'], evidence),
+    table(['Scope', 'Metadata', 'Value'], metadata)].filter(Boolean).join('\n');
 }
 
 // Recognize previous reporters during migration, but never touch human comments.
