@@ -1,8 +1,9 @@
 import { appendFile, readFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { client, context, publish, readReport, render } from './comment.mjs';
+import { client, context, publish, readReport, render, renderReport } from './comment.mjs';
 
 export async function install(env = process.env, execute = spawnSync) {
   const started = Date.now();
@@ -22,13 +23,17 @@ export async function install(env = process.env, execute = spawnSync) {
   }
 }
 
-export async function post(env = process.env, makeClient = client) {
+export async function post(env = process.env, makeClient = client, output = process.stdout) {
   if (!env.STATE_publication) return;
   const state = JSON.parse(env.STATE_publication);
   if (!Number.isSafeInteger(state.started) || state.started <= 0) throw new Error('invalid setup-himorime installation state');
   const report = await readReport(state.path, state.started);
   if (report === null) return;
   const body = render(report, state.run);
+  const token = randomUUID();
+  output.write(`::stop-commands::${token}\n`);
+  try { output.write(renderReport(report, state.run)); }
+  finally { output.write(`\n::${token}::\n`); }
   const send = makeClient(state.run.apiURL, env['INPUT_GITHUB-TOKEN']);
   await publish(state.run, body, send);
 }

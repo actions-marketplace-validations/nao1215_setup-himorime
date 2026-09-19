@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { context, render, publish, readReport, client } from './comment.mjs';
+import { context, render, renderReport, publish, readReport, client } from './comment.mjs';
 import { install, post } from './action.mjs';
 import { mkdtemp, writeFile, readFile, utimes, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -78,6 +78,8 @@ test('missing or stale reports are skipped, malformed or oversized files fail', 
   assert.equal(await readReport(path, 0), null);
   await writeFile(path, JSON.stringify(report()));
   assert.deepEqual(await readReport(path, 0), report());
+  await writeFile(path, JSON.stringify(report()).replace('"schema_version":"1"', '"schema_version":"1","seed":18446744073709551615'));
+  assert.equal((await readReport(path, 0)).seed, '18446744073709551615');
   await utimes(path, 1, 1);
   assert.equal(await readReport(path, Date.now()), null);
   await writeFile(path, '{');
@@ -141,6 +143,8 @@ test('post uses the context captured before benchmark commands ran', async t => 
   });
   const state = (await readFile(settings.GITHUB_STATE, 'utf8')).trim().slice('publication='.length);
   const calls = [];
+  let log = '';
+  const output = { write: text => { log += text; } };
   const transport = (url, token) => {
     assert.equal(url, env.GITHUB_API_URL);
     assert.equal(token, 'secret');
@@ -150,10 +154,15 @@ test('post uses the context captured before benchmark commands ran', async t => 
       return [];
     };
   };
-  await post({ ...settings, STATE_publication: state }, transport);
+  await post({ ...settings, STATE_publication: state }, transport, output);
   assert.equal(calls.length, 0, 'no report means no API request');
   await writeFile(join(dir, 'himorime.json'), JSON.stringify(report()));
-  await post({ ...settings, GITHUB_REPOSITORY: 'hostile/repo', STATE_publication: state }, transport);
+  const fresh = new Date(JSON.parse(state).started + 1000);
+  await utimes(join(dir, 'himorime.json'), fresh, fresh);
+  await post({ ...settings, GITHUB_REPOSITORY: 'hostile/repo', STATE_publication: state }, transport, output);
+  assert.match(log, /stop-commands/);
+  assert.match(log, /below tolerance/);
+  assert.match(log, /\| pass \|/);
   assert.equal(calls[0].path, '/repos/octo/bench/issues/8/comments');
   assert.match(calls[0].data.body, /No regressions/);
   const fork = structuredClone(event);
@@ -210,4 +219,22 @@ test('client rejects redirects and names missing permissions without exposing th
   assert.throws(() => client('https://user:pass@example.com', 'secret'), /HTTPS/);
   const deleted = client(env.GITHUB_API_URL, 'secret', async () => new Response('', { status: 404 }));
   assert.equal(await deleted('DELETE', '/repos/octo/bench/issues/comments/1'), null);
+});
+
+test('post logs all results as tables without changing the report', () => {
+  const rep = report();
+  rep.himorime_version = 'v0.2.0';
+  rep.seed = '18446744073709551615';
+  rep.environment = { os: 'linux', arch: 'amd64', cpu_model: 'Example CPU' };
+  rep.git = { base_sha: 'base', head_sha: 'head' };
+  const c = rep.suites[0].benchmarks[0].commands[0];
+  c.comparisons.latency.ci_low_percent = -1;
+  c.comparisons.latency.ci_high_percent = 2;
+  c.comparisons.latency.required_confidence = 0.95;
+  c.head = { metrics: { latency: { status: 'measured', unit: 'ns', source: 'monotonic clock', stats: { median: 1100000, count: 20, percentiles: { p95: 1200000 } } } } };
+  const before = JSON.stringify(rep);
+  const body = renderReport(rep, run());
+  for (const line of body.trim().split('\n')) assert.ok(line === '' || line.startsWith('|'), line);
+  for (const text of ['pass', '1.00ms', '1.10ms', 'below tolerance', 'v0.2.0', '18446744073709551615', 'linux', 'amd64', 'Example CPU', 'base', 'head', '0.95', 'p95', 'monotonic clock', run().runURL]) assert.ok(body.includes(text), text);
+  assert.equal(JSON.stringify(rep), before);
 });
