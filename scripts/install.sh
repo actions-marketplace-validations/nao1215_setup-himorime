@@ -220,6 +220,22 @@ install_binary() {
   printf '%s' "$dest_bin"
 }
 
+# Install a companion binary when a release archive provides one. Older
+# releases contain only the main CLI, so absence is intentionally allowed.
+install_optional_binary() {
+  local extract_dir="$1" install_dir="$2" binary_name="$3"
+  local src_bin
+  src_bin="$(find "$extract_dir" -type f -name "${binary_name}${BIN_SUFFIX}" | head -n1)"
+  if [ -z "$src_bin" ]; then
+    return 0
+  fi
+  mkdir -p "$install_dir"
+  local dest_bin="${install_dir}/${binary_name}${BIN_SUFFIX}"
+  cp "$src_bin" "$dest_bin"
+  chmod +x "$dest_bin" 2>/dev/null || true
+  log "Installed ${binary_name}${BIN_SUFFIX} -> ${dest_bin}"
+}
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -266,6 +282,7 @@ main() {
   fi
   local dest_bin
   dest_bin="$(install_binary "$extract_dir" "$install_dir" "$archive_name")"
+  install_optional_binary "$extract_dir" "$install_dir" "himorime-comment"
 
   # Add to PATH for subsequent steps, in the runner's native path format so it
   # resolves in both bash and PowerShell steps.

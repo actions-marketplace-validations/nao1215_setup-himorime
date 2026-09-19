@@ -66,16 +66,18 @@ expect_fail "detect_platform rejects an unknown OS" "unsupported runner OS" \
 stage="${tmp}/stage"
 mkdir -p "${stage}/completions"
 printf '#!/bin/sh\necho "himorime fake"\n' >"${stage}/himorime"
+printf '#!/bin/sh\necho "himorime-comment fake"\n' >"${stage}/himorime-comment"
 cp "${stage}/himorime" "${stage}/himorime.exe"
+cp "${stage}/himorime-comment" "${stage}/himorime-comment.exe"
 for f in LICENSE README.md CHANGELOG.md completions/himorime.bash completions/himorime.zsh completions/himorime.fish; do
   printf 'not the binary\n' >"${stage}/${f}"
 done
 
 tarball="${tmp}/himorime_0.1.0_linux_amd64.tar.gz"
-tar -czf "$tarball" -C "$stage" himorime LICENSE README.md CHANGELOG.md completions
+tar -czf "$tarball" -C "$stage" himorime himorime-comment LICENSE README.md CHANGELOG.md completions
 zipball="${tmp}/himorime_0.1.0_windows_amd64.zip"
 if command -v zip >/dev/null 2>&1; then
-  (cd "$stage" && zip -qr "$zipball" himorime.exe LICENSE README.md CHANGELOG.md completions)
+  (cd "$stage" && zip -qr "$zipball" himorime.exe himorime-comment.exe LICENSE README.md CHANGELOG.md completions)
 elif command -v pwsh >/dev/null 2>&1 || command -v powershell >/dev/null 2>&1; then
   ps="$(command -v pwsh || command -v powershell)"
   stage_native="$stage" zip_native="$zipball"
@@ -83,7 +85,7 @@ elif command -v pwsh >/dev/null 2>&1 || command -v powershell >/dev/null 2>&1; t
     stage_native="$(cygpath -w "$stage")" zip_native="$(cygpath -w "$zipball")"
   fi
   "$ps" -NoProfile -NonInteractive -Command \
-    "Compress-Archive -Path '${stage_native}\\himorime.exe','${stage_native}\\LICENSE','${stage_native}\\completions' -DestinationPath '${zip_native}'"
+    "Compress-Archive -Path '${stage_native}\\himorime.exe','${stage_native}\\himorime-comment.exe','${stage_native}\\LICENSE','${stage_native}\\completions' -DestinationPath '${zip_native}'"
 else
   zipball=""
   printf 'skip: no zip or PowerShell to build a zip archive\n'
@@ -124,12 +126,13 @@ check_install() {
   extract_archive "$archive" "$dest"
   local installed
   installed="$(install_binary "$dest" "$install_dir" "$(basename "$archive")")"
+  install_optional_binary "$dest" "$install_dir" "himorime-comment"
   if [ "$installed" != "${install_dir}/himorime${suffix}" ]; then
     fail "install_binary $(basename "$archive"): installed ${installed}"
   elif ! grep -q "himorime fake" "$installed"; then
     fail "install_binary $(basename "$archive"): copied a file that is not the binary"
-  elif [ "$(ls "$install_dir")" != "himorime${suffix}" ]; then
-    fail "install_binary $(basename "$archive"): install dir holds $(ls "$install_dir")"
+  elif [ ! -x "${install_dir}/himorime-comment${suffix}" ]; then
+    fail "install_optional_binary $(basename "$archive"): helper was not installed"
   else
     pass "extract_archive and install_binary $(basename "$archive")"
   fi
