@@ -50,6 +50,9 @@ jobs:
         shell: bash
         run: bash scripts/install_test.sh
 
+      - name: Test automatic comments
+        run: node --test scripts/comment.test.mjs
+
   # Installs a real himorime release on every supported platform. It needs a
   # published release that this workflow's token can download, so it runs
   # when the repository variable HIMORIME_RELEASED is "true", or on demand.
