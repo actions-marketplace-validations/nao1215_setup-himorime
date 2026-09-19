@@ -126,13 +126,12 @@ check_install() {
   extract_archive "$archive" "$dest"
   local installed
   installed="$(install_binary "$dest" "$install_dir" "$(basename "$archive")")"
-  install_optional_binary "$dest" "$install_dir" "himorime-comment"
   if [ "$installed" != "${install_dir}/himorime${suffix}" ]; then
     fail "install_binary $(basename "$archive"): installed ${installed}"
   elif ! grep -q "himorime fake" "$installed"; then
     fail "install_binary $(basename "$archive"): copied a file that is not the binary"
-  elif [ ! -x "${install_dir}/himorime-comment${suffix}" ]; then
-    fail "install_optional_binary $(basename "$archive"): helper was not installed"
+  elif [ -e "${install_dir}/himorime-comment${suffix}" ]; then
+    fail "install_binary $(basename "$archive"): obsolete helper was installed"
   else
     pass "extract_archive and install_binary $(basename "$archive")"
   fi
