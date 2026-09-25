@@ -12,7 +12,7 @@ inputs:
     required: false
     default: "latest"
   github-token:
-    description: "GitHub token used for API requests and downloads to avoid rate limiting."
+    description: "GitHub token for downloads and automatic same-repository PR comments; commenting needs pull-requests: write."
     required: false
     default: ${{ github.token }}
   install-dir:
@@ -35,27 +35,12 @@ inputs:
 outputs:
   version:
     description: "The resolved version of himorime that was installed (e.g. v0.1.0)."
-    value: ${{ steps.install.outputs.version }}
   bin-path:
     description: "Absolute path to the installed himorime binary."
-    value: ${{ steps.install.outputs.bin-path }}
   install-dir:
     description: "Directory the himorime binary was installed into (added to PATH)."
-    value: ${{ steps.install.outputs.install-dir }}
 
 runs:
-  using: "composite"
-  steps:
-    - id: install
-      shell: bash
-      env:
-        INPUT_VERSION: ${{ inputs.version }}
-        INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
-        INPUT_INSTALL_DIR: ${{ inputs.install-dir }}
-        INPUT_VERIFY_CHECKSUM: ${{ inputs.verify-checksum }}
-        INPUT_VERIFY_ATTESTATION: ${{ inputs.verify-attestation }}
-        INPUT_ADD_TO_PATH: ${{ inputs.add-to-path }}
-        GH_TOKEN: ${{ inputs.github-token }}
-        RUNNER_OS: ${{ runner.os }}
-        RUNNER_ARCH: ${{ runner.arch }}
-      run: bash "${GITHUB_ACTION_PATH}/scripts/install.sh"
+  using: "node24"
+  main: "scripts/action.mjs"
+  post: "scripts/post.mjs"

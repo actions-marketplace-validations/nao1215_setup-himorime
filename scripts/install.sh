@@ -2,7 +2,7 @@
 #
 # install.sh — download and install a prebuilt himorime release binary.
 #
-# Runs as a composite-action step on GitHub-hosted runners (Linux, macOS,
+# Runs from the action's main script on GitHub-hosted runners (Linux, macOS,
 # Windows). On Windows it executes under Git Bash, so it relies only on tools
 # that ship with every runner (bash, curl, tar, and either unzip or PowerShell).
 #
